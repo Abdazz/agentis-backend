@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
 from app.database import get_db
+from app.models.oidc import OidcConfig
+from app.models.org import OrganizationMembership
 from app.models.user import User, RefreshToken, ApiKey
 from app.schemas.auth import (
     RegisterRequest, LoginRequest,
@@ -33,12 +35,13 @@ def _make_refresh_token() -> tuple[str, str]:
 
 
 def _set_refresh_cookie(response: Response, raw_token: str) -> None:
+    is_dev = settings.environment == "development"
     response.set_cookie(
         key=REFRESH_COOKIE,
         value=raw_token,
         httponly=True,
-        samesite="strict",
-        secure=settings.environment != "development",
+        samesite="lax" if is_dev else "strict",
+        secure=not is_dev,
         max_age=REFRESH_TTL,
         path="/api/v1/auth",
     )
@@ -142,13 +145,38 @@ async def login(
         select(User).where(func.lower(User.email) == payload.email.lower())
     )
     user = result.scalar_one_or_none()
-    # Check existence and active status first (before expensive bcrypt)
-    if not user or not user.password_hash:
+
+    if user is None:
         await _redis_login_increment(payload.email)
         raise HTTPException(
             status_code=401,
             detail={"code": "invalid_credentials", "message": "Invalid email or password"},
         )
+
+    # BR-AUTH-31: check OIDC org membership BEFORE password_hash guard so that
+    # OIDC-provisioned users (password_hash=None) receive 403 not 401.
+    oidc_org_result = await db.execute(
+        select(OidcConfig)
+        .join(OrganizationMembership, OrganizationMembership.organization_id == OidcConfig.org_id)
+        .where(
+            OrganizationMembership.user_id == user.id,
+            OidcConfig.enabled.is_(True),
+        )
+        .limit(1)
+    )
+    if oidc_org_result.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "oidc_required", "message": "Password login not allowed; use SSO"},
+        )
+
+    if not user.password_hash:
+        await _redis_login_increment(payload.email)
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "invalid_credentials", "message": "Invalid email or password"},
+        )
+
     if user.deleted_at:
         raise HTTPException(
             status_code=401,
@@ -276,6 +304,13 @@ async def create_api_key(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # BR-AUTH-32: OIDC-provisioned users cannot create API keys until admin confirms
+    if current_user.oidc_pending_confirmation:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "oidc_pending_confirmation", "message": "Account pending admin confirmation; API key creation is not allowed"},
+        )
+
     count_result = await db.execute(
         select(func.count()).select_from(ApiKey).where(
             ApiKey.user_id == current_user.id,

@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel, Field, field_validator
+import uuid
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class TaskOptions(BaseModel):
@@ -11,9 +12,10 @@ class TaskOptions(BaseModel):
 
 
 class TaskCreate(BaseModel):
-    goal: str = Field(min_length=1, max_length=10000)
+    goal: Optional[str] = Field(None, min_length=1, max_length=10000)
     language: Optional[str] = None
     options: TaskOptions = Field(default_factory=TaskOptions)
+    template_id: Optional[UUID] = None
 
     @field_validator("language")
     @classmethod
@@ -21,6 +23,12 @@ class TaskCreate(BaseModel):
         if v is not None and v not in ("en", "fr"):
             raise ValueError("language must be 'en' or 'fr'")
         return v
+
+    @model_validator(mode="after")
+    def goal_or_template_required(self) -> "TaskCreate":
+        if self.goal is None and self.template_id is None:
+            raise ValueError("Either 'goal' or 'template_id' must be provided")
+        return self
 
 
 class TaskResponse(BaseModel):
@@ -30,6 +38,7 @@ class TaskResponse(BaseModel):
     language: str
     plan: Optional[dict] = None
     max_iterations: int
+    allowed_tools: Optional[list[str]] = None
     result_summary: Optional[str] = None
     error_message: Optional[str] = None
     error_code: Optional[str] = None
@@ -40,6 +49,8 @@ class TaskResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     stream_url: Optional[str] = None
+    parent_task_id: Optional[uuid.UUID] = None
+    agent_role: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

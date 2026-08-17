@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     default_language: str = "fr"
     log_level: str = "INFO"
     environment: str = "development"
+    base_url: str = "http://localhost:8000"
 
     # Sandbox
     sandbox_image: str = "agentis-sandbox:latest"
@@ -42,6 +43,7 @@ class Settings(BaseSettings):
     # Tools
     tool_output_max_tokens: int = 8000
     code_executor_timeout_s: int = 120
+    mcp_timeout_s: int = 30
 
     # Search
     search_backend: str = "brave"          # brave|searxng|tavily
@@ -74,6 +76,51 @@ class Settings(BaseSettings):
     langfuse_host: str = ""
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
+    prometheus_enabled: bool = True
+    loki_url: str = ""
+    loki_app_name: str = "agentis-backend"
+
+    # Qdrant (long-term memory)
+    qdrant_url: str = "http://qdrant:6333"
+    qdrant_collection: str = "agentis_memory"
+
+    # Voyage AI (embeddings)
+    voyage_api_key: str = ""
+    voyage_model: str = "voyage-multilingual-2"
+    voyage_embedding_dim: int = 1024
+    voyage_base_url: str = ""  # e.g. http://voyage-server:8080/v1 for self-hosted
+
+    # MinIO / S3
+    minio_endpoint: str = "minio:9000"
+    minio_access_key: str = "agentis"
+    minio_secret_key: str = "agentis123"
+    minio_secure: bool = False
+    minio_bucket_uploads: str = "agentis-uploads"
+    minio_bucket_artifacts: str = "agentis-artifacts"
+    minio_bucket_backups: str = "agentis-backups"
+    minio_presigned_expiry_seconds: int = 3600
+
+    # HTTP Caller (safe domains — comma-separated, no spaces)
+    http_caller_safe_domains: str = ""
+
+    # Webhook security
+    fernet_key: str = ""  # Set in production: Fernet.generate_key().decode()
+
+    # ClamAV file scanning (Phase 3B)
+    clamav_socket: str = "/var/run/clamav/clamd.ctl"
+    clamav_enabled: bool = False
+
+    # Voice services (Phase 4B)
+    whisper_model: str = "base"   # tiny, base, small, medium, large
+    whisper_device: str = "cpu"   # cpu or cuda
+    tts_voice: str = "fr-FR-DeniseNeural"
+
+    @property
+    def http_caller_safe_domain_set(self) -> set[str]:
+        if not self.http_caller_safe_domains:
+            return set()
+        normalized = self.http_caller_safe_domains.replace("\r\n", ",").replace("\n", ",")
+        return {d.strip() for d in normalized.split(",") if d.strip()}
 
     @property
     def checkpointer_dsn(self) -> str:

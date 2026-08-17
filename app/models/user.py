@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 from uuid import UUID, uuid4
-from sqlalchemy import String, DateTime, Enum, ForeignKey, Index, BigInteger, text
+from sqlalchemy import Boolean, String, DateTime, Enum, ForeignKey, Index, BigInteger, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
@@ -26,6 +26,11 @@ class User(TimestampMixin, Base):
     language: Mapped[str] = mapped_column(String(5), nullable=False, default="fr")
     token_used_this_month: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    active_organization_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True
+    )
+    oidc_provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    oidc_pending_confirmation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     api_keys: Mapped[list["ApiKey"]] = relationship(back_populates="user", cascade="all, delete-orphan")
